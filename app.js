@@ -1,178 +1,199 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbyUoIy1GifiMKxPnh-AOVkwlWsDRKNLH0r_PJsPw0MVteNlkse9v6g4odCz4CJY_bSTRg/exec'; // <-- PASTE YOUR URL HERE
+const API_URL = 'https://script.google.com/macros/s/AKfycbyUoIy1GifiMKxPnh-AOVkwlWsDRKNLH0r_PJsPw0MVteNlkse9v6g4odCz4CJY_bSTRg/exec'; // <-- PASTE URL
 
 const DOM = {
-  balancesGrid: document.getElementById('balancesGrid'),
+  heroRemaining: document.getElementById('heroRemaining'),
+  heroPlanned: document.getElementById('heroPlanned'),
+  heroSpent: document.getElementById('heroSpent'),
+  monthDisplay: document.getElementById('monthDisplay'),
+  envelopeMonthLabel: document.getElementById('envelopeMonthLabel'),
+  budgetProgressContainer: document.getElementById('budgetProgressContainer'),
+  unallocatedCash: document.getElementById('unallocatedCash'),
+  copyLastMonthBtn: document.getElementById('copyLastMonthBtn'),
   accountSelect: document.getElementById('accountSelect'),
   txCategorySelect: document.getElementById('txCategorySelect'),
   categoryContainer: document.getElementById('categoryContainer'),
   budgetAccountSelect: document.getElementById('budgetAccountSelect'),
-  budgetProgressContainer: document.getElementById('budgetProgressContainer'),
-  wagesRatioContainer: document.getElementById('wagesRatioContainer'),
-  spendingRatioContainer: document.getElementById('spendingRatioContainer'),
-  loading: document.getElementById('loading')
+  balancesGrid: document.getElementById('balancesGrid')
 };
 
 let appData = { accounts: [], transactions: [], budgets: [] };
+let currentDate = new Date(); // Start at real current date
 
 async function init() {
   setupNavigation();
+  updateMonthUI();
   await loadData();
 }
 
+// --- TIME TRAVEL LOGIC ---
+function getMonthStr(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function updateMonthUI() {
+  const opts = { year: 'numeric', month: 'long' };
+  const displayStr = currentDate.toLocaleDateString('en-US', opts);
+  DOM.monthDisplay.innerText = displayStr;
+  DOM.envelopeMonthLabel.innerText = displayStr;
+  if(appData.accounts.length) renderAll(); // Re-render everything for new month
+}
+
+document.getElementById('prevMonth').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); updateMonthUI(); });
+document.getElementById('nextMonth').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); updateMonthUI(); });
+
+// --- DATA ENGINE ---
 async function loadData() {
-  DOM.loading.classList.remove('hidden');
+  document.getElementById('loading').classList.remove('hidden');
   try {
     const res = await fetch(API_URL);
     appData = await res.json();
     if(!appData.budgets) appData.budgets = [];
     renderAll();
-  } catch (err) { console.error('Data sync failed:', err); }
-  DOM.loading.classList.add('hidden');
+  } catch (err) { console.error(err); }
+  document.getElementById('loading').classList.add('hidden');
 }
 
-// ---- METRICS & RENDERING ---- //
-function calculateMetrics() {
-  const accMetrics = {};
-  let poolBalance = 0, poolExpenses = 0;
+function renderAll() {
+  const currentMonthStr = getMonthStr(currentDate);
+  
+  // 1. Filter Data for Selected Month
+  const currentBudgets = appData.budgets.filter(b => b.month === currentMonthStr);
+  const currentTxs = appData.transactions.filter(tx => tx.timestamp.startsWith(currentMonthStr));
 
-  appData.accounts.forEach(acc => accMetrics[acc.name] = { balance: acc.initial, limit: acc.limit, expenses: 0 });
-
+  // 2. Calculate Actual Bank Balances (All time, up to now)
+  let totalBankCash = 0;
+  const accBalances = {};
+  appData.accounts.forEach(a => accBalances[a.name] = a.initial);
   appData.transactions.forEach(tx => {
-    if (accMetrics[tx.account]) {
-      if (tx.type === 'Income') accMetrics[tx.account].balance += tx.amount;
-      if (tx.type === 'Expense') {
-        accMetrics[tx.account].balance -= tx.amount;
-        accMetrics[tx.account].expenses += tx.amount;
-        poolExpenses += tx.amount;
+    if(tx.timestamp <= getMonthStr(currentDate) + "-31") { // Include historical up to selected month
+      if(tx.type === 'Income') accBalances[tx.account] += tx.amount;
+      if(tx.type === 'Expense') accBalances[tx.account] -= tx.amount;
+    }
+  });
+  Object.values(accBalances).forEach(bal => { if(bal > 0) totalBankCash += bal; });
+
+  // 3. Render Accounts Tab (Actual Cash)
+  DOM.balancesGrid.innerHTML = '';
+  for (const [name, balance] of Object.entries(accBalances)) {
+    DOM.balancesGrid.innerHTML += `
+      <div class="p-4 rounded-xl border border-gray-200 bg-white shadow-sm">
+        <h3 class="text-sm font-medium text-gray-500">${name}</h3>
+        <div class="text-xl font-bold text-gray-800">${balance.toFixed(2)}</div>
+      </div>`;
+  }
+
+  // 4. Calculate Month Envelopes
+  let totalPlanned = 0;
+  let totalSpent = 0;
+  
+  const envelopeMetrics = currentBudgets.map(b => ({ ...b, spent: 0 }));
+  
+  currentTxs.forEach(tx => {
+    if (tx.type === 'Expense' && tx.category) {
+      const env = envelopeMetrics.find(m => m.account === tx.account && m.category === tx.category);
+      if (env) {
+        env.spent += tx.amount;
+        totalSpent += tx.amount;
       }
     }
   });
 
-  Object.values(accMetrics).forEach(acc => { if (acc.balance > 0) poolBalance += acc.balance; });
-  return { accMetrics, poolBalance, poolExpenses };
-}
+  envelopeMetrics.forEach(env => totalPlanned += env.amount);
 
-function renderAll() {
-  const metrics = calculateMetrics();
-  renderDashboard(metrics.accMetrics);
-  renderPlanner();
-  renderAnalytics(metrics);
-  populateSelects();
-  updateCategoryDropdown();
-}
+  // 5. Update Front Page Hero Card
+  DOM.heroPlanned.innerText = totalPlanned.toFixed(2);
+  DOM.heroSpent.innerText = totalSpent.toFixed(2);
+  const remaining = totalPlanned - totalSpent;
+  DOM.heroRemaining.innerText = remaining.toFixed(2);
+  DOM.heroRemaining.className = `text-4xl font-bold mb-4 tracking-tight ${remaining < 0 ? 'text-red-400' : 'text-white'}`;
 
-function renderDashboard(metrics) {
-  DOM.balancesGrid.innerHTML = '';
-  for (const [name, data] of Object.entries(metrics)) {
-    const isLow = data.balance <= data.limit;
-    DOM.balancesGrid.innerHTML += `
-      <div class="p-4 rounded-xl border shadow-sm ${isLow ? 'bg-red-50 border-red-200' : 'bg-white border-gray-100'}">
-        <h3 class="text-sm font-medium ${isLow ? 'text-red-600' : 'text-gray-500'} mb-1">${name}</h3>
-        <div class="text-xl font-bold ${isLow ? 'text-red-700' : 'text-gray-800'}">${data.balance.toFixed(2)}</div>
-      </div>
-    `;
-  }
-}
-
-// ---- PLANNER LOGIC ---- //
-function renderPlanner() {
-  const budgetMetrics = appData.budgets.map(b => ({ ...b, spent: 0 }));
+  // 6. Update Planner Tab
+  DOM.unallocatedCash.innerText = (totalBankCash - totalPlanned).toFixed(2);
   
-  // Calculate how much was spent from each envelope
-  appData.transactions.forEach(tx => {
-    if (tx.type === 'Expense' && tx.category) {
-      const b = budgetMetrics.find(m => m.account === tx.account && m.category === tx.category);
-      if (b) b.spent += tx.amount;
-    }
-  });
-
-  DOM.budgetProgressContainer.innerHTML = budgetMetrics.length ? '' : '<p class="text-sm text-gray-500">No budget plans created yet.</p>';
+  DOM.budgetProgressContainer.innerHTML = envelopeMetrics.length ? '' : '<p class="text-sm text-gray-500">No budget plans for this month.</p>';
   
-  budgetMetrics.forEach((m, index) => {
-    const remaining = m.amount - m.spent;
-    const percent = Math.min(100, (m.spent / m.amount) * 100);
-    const isOver = remaining < 0;
+  // Show "Copy Last Month" if empty
+  DOM.copyLastMonthBtn.classList.toggle('hidden', envelopeMetrics.length > 0);
+
+  envelopeMetrics.forEach((m, index) => {
+    const rem = m.amount - m.spent;
+    const pct = Math.min(100, (m.spent / m.amount) * 100);
+    const isOver = rem < 0;
+    
+    // Find absolute index in main array for deletion
+    const trueIndex = appData.budgets.findIndex(b => b.month === m.month && b.category === m.category);
     
     DOM.budgetProgressContainer.innerHTML += `
       <div class="bg-white p-4 rounded-xl border shadow-sm relative">
-        <button onclick="removeBudget(${index})" class="absolute top-2 right-2 text-red-400 hover:text-red-600 text-sm font-bold">✕</button>
+        <button onclick="removeBudget(${trueIndex})" class="absolute top-2 right-2 text-red-400 hover:text-red-600 font-bold">✕</button>
         <div class="text-xs text-gray-500 mb-1">${m.account}</div>
         <div class="flex justify-between items-end mb-2">
           <span class="font-bold text-gray-800">${m.category}</span>
           <div class="text-right">
-            <div class="text-sm font-semibold ${isOver ? 'text-red-600' : 'text-blue-600'}">${remaining.toFixed(2)} left</div>
+            <div class="text-sm font-semibold ${isOver ? 'text-red-600' : 'text-emerald-600'}">${rem.toFixed(2)} left</div>
             <div class="text-xs text-gray-400">of ${m.amount.toFixed(2)} planned</div>
           </div>
         </div>
         <div class="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
-          <div class="${isOver ? 'bg-red-500' : 'bg-blue-500'} h-full transition-all" style="width: ${percent}%"></div>
+          <div class="${isOver ? 'bg-red-500' : 'bg-emerald-500'} h-full transition-all" style="width: ${pct}%"></div>
         </div>
       </div>
     `;
   });
+
+  populateSelects(currentBudgets);
 }
 
-// Add a Budget Plan
+// --- FORMS & ACTIONS ---
+
+DOM.copyLastMonthBtn.addEventListener('click', async () => {
+  const currentMonthStr = getMonthStr(currentDate);
+  const prevDate = new Date(currentDate);
+  prevDate.setMonth(prevDate.getMonth() - 1);
+  const prevMonthStr = getMonthStr(prevDate);
+  
+  const oldBudgets = appData.budgets.filter(b => b.month === prevMonthStr);
+  if(oldBudgets.length === 0) return alert("No envelopes found in the previous month.");
+  
+  oldBudgets.forEach(b => {
+    appData.budgets.push({ month: currentMonthStr, account: b.account, category: b.category, amount: b.amount });
+  });
+  
+  renderAll();
+  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
+});
+
 document.getElementById('budgetForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const payload = {
+  appData.budgets.push({
+    month: getMonthStr(currentDate),
     account: DOM.budgetAccountSelect.value,
     category: document.getElementById('budgetCatInput').value,
     amount: parseFloat(document.getElementById('budgetAmountInput').value)
-  };
-  
-  appData.budgets.push(payload);
-  renderAll();
-  e.target.reset();
-  
-  await fetch(API_URL, {
-    method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets })
   });
+  renderAll(); e.target.reset();
+  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
 });
 
-// Remove a Budget Plan
 window.removeBudget = async function(index) {
-  if(confirm('Delete this budget category?')) {
+  if(confirm('Delete envelope?')) {
     appData.budgets.splice(index, 1);
     renderAll();
-    await fetch(API_URL, {
-      method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets })
-    });
+    await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
   }
 }
 
-// ---- TRACKER & FORMS ---- //
-function populateSelects() {
-  const options = appData.accounts.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
-  if (!DOM.accountSelect.value) DOM.accountSelect.innerHTML = options;
-  if (!DOM.budgetAccountSelect.value) DOM.budgetAccountSelect.innerHTML = options;
-}
-
-function updateCategoryDropdown() {
-  const account = DOM.accountSelect.value;
-  const type = document.querySelector('input[name="type"]:checked').value;
-  const matchedBudgets = appData.budgets.filter(b => b.account === account);
-  
-  if (type === 'Expense' && matchedBudgets.length > 0) {
-    DOM.categoryContainer.classList.remove('hidden');
-    DOM.txCategorySelect.innerHTML = '<option value="">-- General Expense --</option>' + 
-      matchedBudgets.map(b => `<option value="${b.category}">${b.category}</option>`).join('');
-  } else {
-    DOM.categoryContainer.classList.add('hidden');
-    DOM.txCategorySelect.value = '';
-  }
-}
-
-DOM.accountSelect.addEventListener('change', updateCategoryDropdown);
-document.querySelectorAll('input[name="type"]').forEach(r => r.addEventListener('change', updateCategoryDropdown));
-
-// Add Transaction
 document.getElementById('txForm').addEventListener('submit', async (e) => {
   e.preventDefault();
+  // Ensure timestamp matches the month we are currently looking at in the UI
+  const fakeDateForMonth = new Date(currentDate);
+  const today = new Date();
+  if(fakeDateForMonth.getMonth() === today.getMonth()) { fakeDateForMonth.setDate(today.getDate()); } 
+  else { fakeDateForMonth.setDate(15); } // middle of month if backdating
+  
   const payload = {
     action: 'addTransaction',
+    timestamp: fakeDateForMonth.toISOString(),
     type: document.querySelector('input[name="type"]:checked').value,
     account: DOM.accountSelect.value,
     category: DOM.txCategorySelect.value || '',
@@ -180,20 +201,42 @@ document.getElementById('txForm').addEventListener('submit', async (e) => {
     note: document.getElementById('noteInput').value
   };
 
-  appData.transactions.push({ ...payload, timestamp: new Date().toISOString() });
-  renderAll();
-  e.target.reset();
-  DOM.loading.classList.remove('hidden');
-
-  await fetch(API_URL, {
-    method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify(payload)
-  });
-  DOM.loading.classList.add('hidden');
+  appData.transactions.push(payload);
+  renderAll(); e.target.reset();
+  document.getElementById('loading').classList.remove('hidden');
+  await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+  document.getElementById('loading').classList.add('hidden');
 });
 
-// Analytics & Nav logic truncated for brevity (same as previous)
-function renderAnalytics(metrics) { /* (Keep your previous renderAnalytics code here) */ }
+// Category Dropdown Logic
+function populateSelects(currentBudgets) {
+  const accHtml = appData.accounts.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
+  if (!DOM.accountSelect.options.length) DOM.accountSelect.innerHTML = accHtml;
+  if (!DOM.budgetAccountSelect.options.length) DOM.budgetAccountSelect.innerHTML = accHtml;
+  updateCategoryDropdown(currentBudgets);
+}
+
+function updateCategoryDropdown(currentBudgets) {
+  if(!currentBudgets) currentBudgets = appData.budgets.filter(b => b.month === getMonthStr(currentDate));
+  const account = DOM.accountSelect.value;
+  const type = document.querySelector('input[name="type"]:checked').value;
+  const matched = currentBudgets.filter(b => b.account === account);
+  
+  if (type === 'Expense' && matched.length > 0) {
+    DOM.categoryContainer.classList.remove('hidden');
+    DOM.txCategorySelect.innerHTML = '<option value="">-- Unplanned Expense --</option>' + 
+      matched.map(b => `<option value="${b.category}">${b.category}</option>`).join('');
+  } else {
+    DOM.categoryContainer.classList.add('hidden');
+    DOM.txCategorySelect.value = '';
+  }
+}
+
+DOM.accountSelect.addEventListener('change', () => updateCategoryDropdown());
+document.querySelectorAll('input[name="type"]').forEach(r => r.addEventListener('change', () => updateCategoryDropdown()));
+document.getElementById('refreshBtn').addEventListener('click', loadData);
+
+// Nav Setup
 function setupNavigation() {
   const tabs = ['Tracker', 'Planner', 'Analytics'];
   tabs.forEach(tab => {
@@ -202,10 +245,8 @@ function setupNavigation() {
         document.getElementById(`${t.toLowerCase()}Tab`).classList.toggle('hidden', t !== tab);
         document.getElementById(`nav${t}`).className = t === tab ? 'flex flex-col items-center justify-center w-full h-full text-emerald-600 font-semibold text-sm' : 'flex flex-col items-center justify-center w-full h-full text-gray-400 font-semibold text-sm';
       });
-      if(tab !== 'Tracker') renderAll();
     });
   });
 }
 
-document.getElementById('refreshBtn').addEventListener('click', loadData);
 init();
