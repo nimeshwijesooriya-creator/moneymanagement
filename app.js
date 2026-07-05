@@ -85,8 +85,9 @@ function renderAll() {
 
   // --- WEALTH ENGINE: Bank Balances & Net Worth ---
   const accBalances = {};
-  appData.accounts.forEach(a => accBalances[a.name] = { bal: a.initial, type: a.type });
-  
+  appData.accounts.forEach((a, index) => {
+    accBalances[a.name] = { bal: a.initial, type: a.type, initial: a.initial, trueIndex: index };
+  });
   appData.transactions.forEach(tx => {
     if(tx.timestamp <= getMonthStr(currentDate) + "-31") {
       if(tx.type === 'Income' && accBalances[tx.account]) accBalances[tx.account].bal += tx.amount;
@@ -113,8 +114,9 @@ function renderAll() {
         
         const isNegative = data.bal < 0;
         groupHtml += `
-          <div class="p-4 rounded-xl border border-gray-200 bg-white shadow-sm">
-            <h4 class="text-xs font-medium text-gray-500 truncate">${name}</h4>
+          <div class="p-4 rounded-xl border border-gray-200 bg-white shadow-sm relative">
+            <button onclick="openEditAccount(${data.trueIndex})" class="absolute top-2 right-2 text-gray-400 hover:text-blue-600 text-lg">✎</button>
+            <h4 class="text-xs font-medium text-gray-500 truncate pr-6">${name}</h4>
             <div class="text-lg font-bold ${isNegative ? 'text-red-500' : 'text-gray-800'}">${data.bal.toFixed(2)}</div>
           </div>`;
       }
@@ -150,6 +152,7 @@ function renderAll() {
     
     DOM.budgetProgressContainer.innerHTML += `
       <div class="bg-white p-4 rounded-xl border shadow-sm relative">
+        <button onclick="openEditBudget(${trueIndex})" class="absolute top-2 right-8 text-blue-400 hover:text-blue-600 font-bold">✎</button>
         <button onclick="removeBudget(${trueIndex})" class="absolute top-2 right-2 text-red-400 hover:text-red-600 font-bold">✕</button>
         <div class="text-xs text-gray-500 mb-1">${m.account}</div>
         <div class="flex justify-between items-end mb-2">
@@ -276,6 +279,54 @@ document.getElementById('budgetForm').addEventListener('submit', async (e) => {
 
 window.removeBudget = async function(index) {
   if(confirm('Delete envelope?')) { appData.budgets.splice(index, 1); renderAll(); await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) }); }
+}
+
+// --- EDIT / DELETE LOGIC ---
+let activeEditIndex = -1;
+
+// Accounts
+window.openEditAccount = function(index) {
+  activeEditIndex = index;
+  const acc = appData.accounts[index];
+  document.getElementById('editAccName').value = acc.name;
+  document.getElementById('editAccType').value = acc.type;
+  document.getElementById('editAccBal').value = acc.initial;
+  document.getElementById('editAccountModal').classList.remove('hidden');
+}
+
+window.saveAccountEdit = async function() {
+  appData.accounts[activeEditIndex].name = document.getElementById('editAccName').value;
+  appData.accounts[activeEditIndex].type = document.getElementById('editAccType').value;
+  appData.accounts[activeEditIndex].initial = parseFloat(document.getElementById('editAccBal').value);
+  document.getElementById('editAccountModal').classList.add('hidden');
+  renderAll();
+  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveAccounts', accounts: appData.accounts }) });
+}
+
+window.deleteAccount = async function() {
+  if(confirm('Delete this account? Note: Transactions tied to this account will become orphaned.')) {
+    appData.accounts.splice(activeEditIndex, 1);
+    document.getElementById('editAccountModal').classList.add('hidden');
+    renderAll();
+    await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveAccounts', accounts: appData.accounts }) });
+  }
+}
+
+// Envelopes
+window.openEditBudget = function(index) {
+  activeEditIndex = index;
+  const b = appData.budgets[index];
+  document.getElementById('editBudCat').value = b.category;
+  document.getElementById('editBudAmt').value = b.amount;
+  document.getElementById('editBudgetModal').classList.remove('hidden');
+}
+
+window.saveBudgetEdit = async function() {
+  appData.budgets[activeEditIndex].category = document.getElementById('editBudCat').value;
+  appData.budgets[activeEditIndex].amount = parseFloat(document.getElementById('editBudAmt').value);
+  document.getElementById('editBudgetModal').classList.add('hidden');
+  renderAll();
+  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
 }
 
 DOM.copyLastMonthBtn.addEventListener('click', async () => {
