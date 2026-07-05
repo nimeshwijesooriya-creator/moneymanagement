@@ -3,16 +3,24 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>WageTracker</title>
+  <title>WageTracker Pro</title>
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#10b981">
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased pb-24">
 
-  <header class="bg-emerald-600 text-white p-4 shadow-md sticky top-0 z-10 flex justify-between items-center">
-    <h1 class="text-xl font-bold">WageTracker</h1>
-    <button id="refreshBtn" class="text-sm bg-emerald-700 px-3 py-1 rounded hover:bg-emerald-800">↻ Sync</button>
+  <header class="bg-emerald-600 text-white p-4 shadow-md sticky top-0 z-10 flex flex-col gap-3">
+    <div class="flex justify-between items-center">
+      <h1 class="text-xl font-bold">WageTracker</h1>
+      <button id="refreshBtn" class="text-sm bg-emerald-700 px-3 py-1 rounded hover:bg-emerald-800">↻ Sync</button>
+    </div>
+    <!-- Global Month Selector -->
+    <div class="flex justify-between items-center bg-emerald-800/50 rounded-lg p-2">
+      <button id="prevMonth" class="px-3 py-1 font-bold hover:bg-emerald-700 rounded">&lt;</button>
+      <div id="monthDisplay" class="font-bold tracking-wide">July 2026</div>
+      <button id="nextMonth" class="px-3 py-1 font-bold hover:bg-emerald-700 rounded">&gt;</button>
+    </div>
   </header>
 
   <main class="p-4 max-w-md mx-auto">
@@ -20,85 +28,86 @@
 
     <!-- TRACKER TAB -->
     <div id="trackerTab" class="space-y-6">
-      <section>
-        <h2 class="text-lg font-semibold mb-3 text-gray-700">Account Balances</h2>
-        <div id="balancesGrid" class="grid grid-cols-2 gap-3"></div>
-      </section>
+      
+      <!-- HERO BUDGET CARD -->
+      <div class="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-6 text-white shadow-xl">
+        <div class="text-sm text-gray-400 font-medium mb-1 uppercase tracking-wider">Remaining Total Budget</div>
+        <div class="text-4xl font-bold mb-4 tracking-tight" id="heroRemaining">0.00</div>
+        <div class="flex justify-between text-sm border-t border-gray-700 pt-3">
+          <div><span class="text-gray-400 block text-xs uppercase">Total Planned</span><span id="heroPlanned" class="font-semibold">0.00</span></div>
+          <div class="text-right"><span class="text-gray-400 block text-xs uppercase">Total Spent</span><span id="heroSpent" class="text-red-400 font-semibold">0.00</span></div>
+        </div>
+      </div>
 
-      <section class="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-        <h2 class="text-lg font-semibold mb-4 text-gray-700">Add Entry</h2>
+      <section class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+        <h2 class="text-lg font-semibold mb-4 text-gray-700">Record Transaction</h2>
         <form id="txForm" class="space-y-4">
           <div class="flex gap-2">
-            <label class="flex-1 block"><input type="radio" name="type" value="Income" class="peer hidden" checked><div class="text-center py-2 border rounded-lg peer-checked:bg-emerald-100 peer-checked:border-emerald-500 font-medium cursor-pointer">Income</div></label>
-            <label class="flex-1 block"><input type="radio" name="type" value="Expense" class="peer hidden"><div class="text-center py-2 border rounded-lg peer-checked:bg-red-100 peer-checked:border-red-500 font-medium cursor-pointer">Expense</div></label>
+            <label class="flex-1 block"><input type="radio" name="type" value="Expense" class="peer hidden" checked><div class="text-center py-2 border rounded-lg peer-checked:bg-red-100 peer-checked:border-red-500 peer-checked:text-red-700 font-medium cursor-pointer">Expense (Wages)</div></label>
+            <label class="flex-1 block"><input type="radio" name="type" value="Income" class="peer hidden"><div class="text-center py-2 border rounded-lg peer-checked:bg-emerald-100 peer-checked:border-emerald-500 peer-checked:text-emerald-700 font-medium cursor-pointer">Income</div></label>
           </div>
           <div>
             <label class="block text-sm text-gray-600 mb-1">Account</label>
-            <select id="accountSelect" class="w-full border rounded-lg p-2 bg-gray-50" required></select>
+            <select id="accountSelect" class="w-full border rounded-lg p-2 bg-gray-50 focus:ring-emerald-500" required></select>
           </div>
-          <!-- New Category Dropdown (Hides automatically if no budgets exist) -->
-          <div id="categoryContainer" class="hidden">
-            <label class="block text-sm text-gray-600 mb-1">Budget Category</label>
-            <select id="txCategorySelect" class="w-full border rounded-lg p-2 bg-gray-50"></select>
+          <div id="categoryContainer">
+            <label class="block text-sm text-gray-600 mb-1">Envelope / Category</label>
+            <select id="txCategorySelect" class="w-full border rounded-lg p-2 bg-gray-50 focus:ring-emerald-500"></select>
           </div>
           <div>
             <label class="block text-sm text-gray-600 mb-1">Amount</label>
             <input type="number" id="amountInput" step="0.01" class="w-full border rounded-lg p-2 bg-gray-50" required>
           </div>
           <div>
-            <label class="block text-sm text-gray-600 mb-1">Note (Optional)</label>
+            <label class="block text-sm text-gray-600 mb-1">Note</label>
             <input type="text" id="noteInput" class="w-full border rounded-lg p-2 bg-gray-50">
           </div>
-          <button type="submit" class="w-full bg-emerald-600 text-white font-semibold py-3 rounded-lg shadow hover:bg-emerald-700 transition">Save Transaction</button>
+          <button type="submit" class="w-full bg-gray-800 text-white font-semibold py-3 rounded-lg shadow hover:bg-gray-900 transition">Save</button>
         </form>
       </section>
     </div>
 
-    <!-- PLANNER TAB (NEW) -->
+    <!-- PLANNER TAB -->
     <div id="plannerTab" class="hidden space-y-6">
+      
+      <!-- Unallocated Indicator -->
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 text-center">
+        <div class="text-xs text-blue-600 font-bold uppercase mb-1">Unallocated Cash Safe to Assign</div>
+        <div class="text-2xl font-bold text-blue-800" id="unallocatedCash">0.00</div>
+      </div>
+
       <section>
-        <h2 class="text-lg font-semibold mb-3 text-gray-700">Budget Progress</h2>
+        <div class="flex justify-between items-end mb-3">
+          <h2 class="text-lg font-semibold text-gray-700">Envelopes (<span id="envelopeMonthLabel"></span>)</h2>
+          <button id="copyLastMonthBtn" class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded hover:bg-gray-300 hidden">Copy Last Month</button>
+        </div>
         <div id="budgetProgressContainer" class="space-y-4"></div>
       </section>
 
-      <section class="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-        <h2 class="text-lg font-semibold mb-4 text-gray-700">Add Planned Expense</h2>
+      <section class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+        <h2 class="text-lg font-semibold mb-4 text-gray-700">Create New Envelope</h2>
         <form id="budgetForm" class="space-y-4">
-          <div>
-            <label class="block text-sm text-gray-600 mb-1">Parent Account</label>
-            <select id="budgetAccountSelect" class="w-full border rounded-lg p-2 bg-gray-50" required></select>
-          </div>
-          <div>
-            <label class="block text-sm text-gray-600 mb-1">Bill/Category (e.g., Rent, Mobile)</label>
-            <input type="text" id="budgetCatInput" class="w-full border rounded-lg p-2 bg-gray-50" required>
-          </div>
-          <div>
-            <label class="block text-sm text-gray-600 mb-1">Planned Amount</label>
-            <input type="number" id="budgetAmountInput" step="0.01" class="w-full border rounded-lg p-2 bg-gray-50" required>
-          </div>
-          <button type="submit" class="w-full bg-blue-600 text-white font-semibold py-3 rounded-lg shadow hover:bg-blue-700 transition">Save to Budget Plan</button>
+          <div><label class="block text-sm text-gray-600 mb-1">Parent Account</label><select id="budgetAccountSelect" class="w-full border rounded-lg p-2 bg-gray-50" required></select></div>
+          <div><label class="block text-sm text-gray-600 mb-1">Category (e.g., Rent, Mobile)</label><input type="text" id="budgetCatInput" class="w-full border rounded-lg p-2 bg-gray-50" required></div>
+          <div><label class="block text-sm text-gray-600 mb-1">Planned Amount</label><input type="number" id="budgetAmountInput" step="0.01" class="w-full border rounded-lg p-2 bg-gray-50" required></div>
+          <button type="submit" class="w-full bg-blue-600 text-white font-semibold py-3 rounded-lg shadow hover:bg-blue-700">Save Envelope</button>
         </form>
       </section>
     </div>
 
-    <!-- ANALYTICS TAB -->
+    <!-- ANALYTICS TAB (Actual Bank Balances live here now) -->
     <div id="analyticsTab" class="hidden space-y-6">
-      <section class="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-        <h2 class="text-lg font-semibold text-gray-700 mb-1">Wages Ratio</h2>
-        <div id="wagesRatioContainer" class="space-y-4 mt-3"></div>
-      </section>
-      <section class="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-        <h2 class="text-lg font-semibold text-gray-700 mb-1">Spending Ratio</h2>
-        <div id="spendingRatioContainer" class="space-y-4 mt-3"></div>
+      <section>
+        <h2 class="text-lg font-semibold mb-3 text-gray-700">Actual Bank Balances</h2>
+        <div id="balancesGrid" class="grid grid-cols-2 gap-3"></div>
       </section>
     </div>
   </main>
 
-  <!-- 3-Button Navigation -->
   <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg flex justify-around items-center h-16 z-20">
     <button id="navTracker" class="flex flex-col items-center justify-center w-full h-full text-emerald-600 font-semibold text-sm"><span>📝</span><span>Tracker</span></button>
     <button id="navPlanner" class="flex flex-col items-center justify-center w-full h-full text-gray-400 font-semibold text-sm"><span>🎯</span><span>Planner</span></button>
-    <button id="navAnalytics" class="flex flex-col items-center justify-center w-full h-full text-gray-400 font-semibold text-sm"><span>📊</span><span>Analytics</span></button>
+    <button id="navAnalytics" class="flex flex-col items-center justify-center w-full h-full text-gray-400 font-semibold text-sm"><span>🏦</span><span>Accounts</span></button>
   </nav>
 
   <script src="app.js"></script>
