@@ -127,6 +127,45 @@
     </div>
   </main>
 
+  <!-- EDIT ACCOUNT MODAL -->
+  <div id="editAccountModal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl p-6 w-full max-w-sm">
+      <h3 class="text-lg font-bold mb-4">Edit Account</h3>
+      <div class="space-y-4">
+        <div><label class="block text-sm text-gray-600 mb-1">Name</label><input type="text" id="editAccName" class="w-full border rounded-lg p-2 bg-gray-50"></div>
+        <div>
+          <label class="block text-sm text-gray-600 mb-1">Type</label>
+          <select id="editAccType" class="w-full border rounded-lg p-2 bg-gray-50">
+            <option value="Everyday">Checking / Everyday</option>
+            <option value="Savings">Permanent Savings</option>
+            <option value="Liability">Credit Card / Loan</option>
+          </select>
+        </div>
+        <div><label class="block text-sm text-gray-600 mb-1">Initial Balance</label><input type="number" id="editAccBal" step="0.01" class="w-full border rounded-lg p-2 bg-gray-50"></div>
+        <div class="flex gap-2 pt-2">
+          <button onclick="saveAccountEdit()" class="flex-1 bg-emerald-600 text-white font-semibold py-2 rounded-lg">Save</button>
+          <button onclick="deleteAccount()" class="flex-1 bg-red-500 text-white font-semibold py-2 rounded-lg">Delete</button>
+          <button onclick="document.getElementById('editAccountModal').classList.add('hidden')" class="flex-1 bg-gray-200 text-gray-700 font-semibold py-2 rounded-lg">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDIT ENVELOPE MODAL -->
+  <div id="editBudgetModal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl p-6 w-full max-w-sm">
+      <h3 class="text-lg font-bold mb-4">Edit Envelope</h3>
+      <div class="space-y-4">
+        <div><label class="block text-sm text-gray-600 mb-1">Category Name</label><input type="text" id="editBudCat" class="w-full border rounded-lg p-2 bg-gray-50"></div>
+        <div><label class="block text-sm text-gray-600 mb-1">Planned Amount</label><input type="number" id="editBudAmt" step="0.01" class="w-full border rounded-lg p-2 bg-gray-50"></div>
+        <div class="flex gap-2 pt-2">
+          <button onclick="saveBudgetEdit()" class="flex-1 bg-blue-600 text-white font-semibold py-2 rounded-lg">Save</button>
+          <button onclick="document.getElementById('editBudgetModal').classList.add('hidden')" class="flex-1 bg-gray-200 text-gray-700 font-semibold py-2 rounded-lg">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
   <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg flex justify-around items-center h-16 z-20">
     <button id="navTracker" class="flex flex-col items-center justify-center w-full h-full text-emerald-700 font-semibold text-sm"><span>📝</span><span>Tracker</span></button>
     <button id="navPlanner" class="flex flex-col items-center justify-center w-full h-full text-gray-400 font-semibold text-sm"><span>🎯</span><span>Planner</span></button>
