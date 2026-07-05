@@ -4,6 +4,8 @@ const DOM = {
   heroRemaining: document.getElementById('heroRemaining'),
   heroPlanned: document.getElementById('heroPlanned'),
   heroSpent: document.getElementById('heroSpent'),
+  liabilityWarning: document.getElementById('liabilityWarning'),
+  owedToSavings: document.getElementById('owedToSavings'),
   monthDisplay: document.getElementById('monthDisplay'),
   envelopeMonthLabel: document.getElementById('envelopeMonthLabel'),
   budgetProgressContainer: document.getElementById('budgetProgressContainer'),
@@ -13,41 +15,36 @@ const DOM = {
   txCategorySelect: document.getElementById('txCategorySelect'),
   categoryContainer: document.getElementById('categoryContainer'),
   budgetAccountSelect: document.getElementById('budgetAccountSelect'),
-  balancesGrid: document.getElementById('balancesGrid')
+  balancesGrid: document.getElementById('balancesGrid'),
+  transferToContainer: document.getElementById('transferToContainer'),
+  transferToSelect: document.getElementById('transferToSelect'),
+  accountLabel: document.getElementById('accountLabel')
 };
 
 let appData = { accounts: [], transactions: [], budgets: [] };
-let currentDate = new Date(); // Start at real current date
+let currentDate = new Date();
 
-async function init() {
-  setupNavigation();
-  updateMonthUI();
-  await loadData();
-}
+async function init() { setupNavigation(); updateMonthUI(); await loadData(); }
 
-// --- TIME TRAVEL LOGIC ---
-function getMonthStr(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-}
+function getMonthStr(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; }
 
 function updateMonthUI() {
-  const opts = { year: 'numeric', month: 'long' };
-  const displayStr = currentDate.toLocaleDateString('en-US', opts);
+  const displayStr = currentDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
   DOM.monthDisplay.innerText = displayStr;
   DOM.envelopeMonthLabel.innerText = displayStr;
-  if(appData.accounts.length) renderAll(); // Re-render everything for new month
+  if(appData.accounts.length) renderAll();
 }
 
 document.getElementById('prevMonth').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); updateMonthUI(); });
 document.getElementById('nextMonth').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); updateMonthUI(); });
 
-// --- DATA ENGINE ---
 async function loadData() {
   document.getElementById('loading').classList.remove('hidden');
   try {
     const res = await fetch(API_URL);
     appData = await res.json();
     if(!appData.budgets) appData.budgets = [];
+    document.getElementById('trackerTab').classList.remove('hidden'); // Show when loaded
     renderAll();
   } catch (err) { console.error(err); }
   document.getElementById('loading').classList.add('hidden');
@@ -55,37 +52,51 @@ async function loadData() {
 
 function renderAll() {
   const currentMonthStr = getMonthStr(currentDate);
-  
-  // 1. Filter Data for Selected Month
   const currentBudgets = appData.budgets.filter(b => b.month === currentMonthStr);
   const currentTxs = appData.transactions.filter(tx => tx.timestamp.startsWith(currentMonthStr));
 
-  // 2. Calculate Actual Bank Balances (All time, up to now)
-  let totalBankCash = 0;
+  // --- WEALTH ENGINE: Bank Balances & Net Worth ---
   const accBalances = {};
-  appData.accounts.forEach(a => accBalances[a.name] = a.initial);
+  appData.accounts.forEach(a => accBalances[a.name] = { bal: a.initial, type: a.type });
+  
   appData.transactions.forEach(tx => {
-    if(tx.timestamp <= getMonthStr(currentDate) + "-31") { // Include historical up to selected month
-      if(tx.type === 'Income') accBalances[tx.account] += tx.amount;
-      if(tx.type === 'Expense') accBalances[tx.account] -= tx.amount;
+    if(tx.timestamp <= getMonthStr(currentDate) + "-31") {
+      if(tx.type === 'Income' && accBalances[tx.account]) accBalances[tx.account].bal += tx.amount;
+      if(tx.type === 'Expense' && accBalances[tx.account]) accBalances[tx.account].bal -= tx.amount;
+      if(tx.type === 'Transfer') {
+        if(accBalances[tx.account]) accBalances[tx.account].bal -= tx.amount;
+        if(accBalances[tx.toAccount]) accBalances[tx.toAccount].bal += tx.amount;
+      }
     }
   });
-  Object.values(accBalances).forEach(bal => { if(bal > 0) totalBankCash += bal; });
 
-  // 3. Render Accounts Tab (Actual Cash)
-  DOM.balancesGrid.innerHTML = '';
-  for (const [name, balance] of Object.entries(accBalances)) {
-    DOM.balancesGrid.innerHTML += `
-      <div class="p-4 rounded-xl border border-gray-200 bg-white shadow-sm">
-        <h3 class="text-sm font-medium text-gray-500">${name}</h3>
-        <div class="text-xl font-bold text-gray-800">${balance.toFixed(2)}</div>
-      </div>`;
-  }
-
-  // 4. Calculate Month Envelopes
-  let totalPlanned = 0;
-  let totalSpent = 0;
+  // Calculate Everyday Cash (for planner) vs Total Assets vs Liabilities
+  let unallocatedAvailableCash = 0;
   
+  DOM.balancesGrid.innerHTML = '';
+  ['Everyday', 'Savings', 'Liability'].forEach(groupType => {
+    let groupHtml = `<h3 class="text-sm font-bold text-gray-500 uppercase mt-4 mb-2">${groupType} Accounts</h3><div class="grid grid-cols-2 gap-3">`;
+    let hasItems = false;
+    
+    for (const [name, data] of Object.entries(accBalances)) {
+      if(data.type === groupType) {
+        hasItems = true;
+        if(groupType === 'Everyday') unallocatedAvailableCash += data.bal; // Only use Everyday for budget envelopes
+        
+        const isNegative = data.bal < 0;
+        groupHtml += `
+          <div class="p-4 rounded-xl border border-gray-200 bg-white shadow-sm">
+            <h4 class="text-xs font-medium text-gray-500 truncate">${name}</h4>
+            <div class="text-lg font-bold ${isNegative ? 'text-red-500' : 'text-gray-800'}">${data.bal.toFixed(2)}</div>
+          </div>`;
+      }
+    }
+    groupHtml += `</div>`;
+    if(hasItems) DOM.balancesGrid.innerHTML += groupHtml;
+  });
+
+  // --- BUDGET ENGINE ---
+  let totalPlanned = 0, totalSpent = 0, totalLiabilityDebt = 0;
   const envelopeMetrics = currentBudgets.map(b => ({ ...b, spent: 0 }));
   
   currentTxs.forEach(tx => {
@@ -98,29 +109,15 @@ function renderAll() {
     }
   });
 
-  envelopeMetrics.forEach(env => totalPlanned += env.amount);
-
-  // 5. Update Front Page Hero Card
-  DOM.heroPlanned.innerText = totalPlanned.toFixed(2);
-  DOM.heroSpent.innerText = totalSpent.toFixed(2);
-  const remaining = totalPlanned - totalSpent;
-  DOM.heroRemaining.innerText = remaining.toFixed(2);
-  DOM.heroRemaining.className = `text-4xl font-bold mb-4 tracking-tight ${remaining < 0 ? 'text-red-400' : 'text-white'}`;
-
-  // 6. Update Planner Tab
-  DOM.unallocatedCash.innerText = (totalBankCash - totalPlanned).toFixed(2);
-  
   DOM.budgetProgressContainer.innerHTML = envelopeMetrics.length ? '' : '<p class="text-sm text-gray-500">No budget plans for this month.</p>';
   
-  // Show "Copy Last Month" if empty
-  DOM.copyLastMonthBtn.classList.toggle('hidden', envelopeMetrics.length > 0);
-
   envelopeMetrics.forEach((m, index) => {
+    totalPlanned += m.amount;
     const rem = m.amount - m.spent;
+    if (rem < 0) totalLiabilityDebt += Math.abs(rem); // WEALTH Logic: Overspending is debt
+
     const pct = Math.min(100, (m.spent / m.amount) * 100);
     const isOver = rem < 0;
-    
-    // Find absolute index in main array for deletion
     const trueIndex = appData.budgets.findIndex(b => b.month === m.month && b.category === m.category);
     
     DOM.budgetProgressContainer.innerHTML += `
@@ -141,62 +138,57 @@ function renderAll() {
     `;
   });
 
+  // Hero Card Updates
+  DOM.heroPlanned.innerText = totalPlanned.toFixed(2);
+  DOM.heroSpent.innerText = totalSpent.toFixed(2);
+  const remaining = totalPlanned - totalSpent;
+  DOM.heroRemaining.innerText = remaining.toFixed(2);
+  
+  if(totalLiabilityDebt > 0) {
+    DOM.liabilityWarning.classList.remove('hidden');
+    DOM.owedToSavings.innerText = totalLiabilityDebt.toFixed(2);
+  } else {
+    DOM.liabilityWarning.classList.add('hidden');
+  }
+
+  // Planner Cash
+  DOM.unallocatedCash.innerText = (unallocatedAvailableCash - totalPlanned).toFixed(2);
+  DOM.copyLastMonthBtn.classList.toggle('hidden', envelopeMetrics.length > 0);
+
   populateSelects(currentBudgets);
 }
 
 // --- FORMS & ACTIONS ---
 
-DOM.copyLastMonthBtn.addEventListener('click', async () => {
-  const currentMonthStr = getMonthStr(currentDate);
-  const prevDate = new Date(currentDate);
-  prevDate.setMonth(prevDate.getMonth() - 1);
-  const prevMonthStr = getMonthStr(prevDate);
-  
-  const oldBudgets = appData.budgets.filter(b => b.month === prevMonthStr);
-  if(oldBudgets.length === 0) return alert("No envelopes found in the previous month.");
-  
-  oldBudgets.forEach(b => {
-    appData.budgets.push({ month: currentMonthStr, account: b.account, category: b.category, amount: b.amount });
-  });
-  
-  renderAll();
-  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
-});
-
-document.getElementById('budgetForm').addEventListener('submit', async (e) => {
+// New: Account Creator
+document.getElementById('accountForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  appData.budgets.push({
-    month: getMonthStr(currentDate),
-    account: DOM.budgetAccountSelect.value,
-    category: document.getElementById('budgetCatInput').value,
-    amount: parseFloat(document.getElementById('budgetAmountInput').value)
-  });
+  const payload = {
+    action: 'addAccount',
+    name: document.getElementById('accNameInput').value,
+    type: document.getElementById('accTypeSelect').value,
+    initialBalance: parseFloat(document.getElementById('accBalInput').value)
+  };
+  appData.accounts.push({ name: payload.name, type: payload.type, initial: payload.initialBalance });
   renderAll(); e.target.reset();
-  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
+  await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
 });
-
-window.removeBudget = async function(index) {
-  if(confirm('Delete envelope?')) {
-    appData.budgets.splice(index, 1);
-    renderAll();
-    await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
-  }
-}
 
 document.getElementById('txForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  // Ensure timestamp matches the month we are currently looking at in the UI
   const fakeDateForMonth = new Date(currentDate);
   const today = new Date();
   if(fakeDateForMonth.getMonth() === today.getMonth()) { fakeDateForMonth.setDate(today.getDate()); } 
-  else { fakeDateForMonth.setDate(15); } // middle of month if backdating
+  else { fakeDateForMonth.setDate(15); } 
   
+  const type = document.querySelector('input[name="type"]:checked').value;
   const payload = {
     action: 'addTransaction',
     timestamp: fakeDateForMonth.toISOString(),
-    type: document.querySelector('input[name="type"]:checked').value,
+    type: type,
     account: DOM.accountSelect.value,
-    category: DOM.txCategorySelect.value || '',
+    category: type === 'Expense' ? DOM.txCategorySelect.value : '',
+    toAccount: type === 'Transfer' ? DOM.transferToSelect.value : '',
     amount: parseFloat(document.getElementById('amountInput').value),
     note: document.getElementById('noteInput').value
   };
@@ -208,11 +200,16 @@ document.getElementById('txForm').addEventListener('submit', async (e) => {
   document.getElementById('loading').classList.add('hidden');
 });
 
-// Category Dropdown Logic
+// Category & Transfer UI Logic
 function populateSelects(currentBudgets) {
   const accHtml = appData.accounts.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
   if (!DOM.accountSelect.options.length) DOM.accountSelect.innerHTML = accHtml;
   if (!DOM.budgetAccountSelect.options.length) DOM.budgetAccountSelect.innerHTML = accHtml;
+  
+  // Exclude current account from 'To' dropdown
+  const toAccHtml = appData.accounts.filter(a => a.name !== DOM.accountSelect.value).map(a => `<option value="${a.name}">${a.name}</option>`).join('');
+  DOM.transferToSelect.innerHTML = toAccHtml;
+  
   updateCategoryDropdown(currentBudgets);
 }
 
@@ -220,15 +217,20 @@ function updateCategoryDropdown(currentBudgets) {
   if(!currentBudgets) currentBudgets = appData.budgets.filter(b => b.month === getMonthStr(currentDate));
   const account = DOM.accountSelect.value;
   const type = document.querySelector('input[name="type"]:checked').value;
-  const matched = currentBudgets.filter(b => b.account === account);
   
-  if (type === 'Expense' && matched.length > 0) {
+  DOM.categoryContainer.classList.add('hidden');
+  DOM.transferToContainer.classList.add('hidden');
+  DOM.accountLabel.innerText = type === 'Transfer' ? 'From Account' : 'Account';
+
+  if (type === 'Expense') {
+    const matched = currentBudgets.filter(b => b.account === account);
     DOM.categoryContainer.classList.remove('hidden');
     DOM.txCategorySelect.innerHTML = '<option value="">-- Unplanned Expense --</option>' + 
       matched.map(b => `<option value="${b.category}">${b.category}</option>`).join('');
-  } else {
-    DOM.categoryContainer.classList.add('hidden');
-    DOM.txCategorySelect.value = '';
+  } else if (type === 'Transfer') {
+    DOM.transferToContainer.classList.remove('hidden');
+    // Re-filter the 'To' list to prevent sending to itself
+    DOM.transferToSelect.innerHTML = appData.accounts.filter(a => a.name !== account).map(a => `<option value="${a.name}">${a.name}</option>`).join('');
   }
 }
 
@@ -236,14 +238,35 @@ DOM.accountSelect.addEventListener('change', () => updateCategoryDropdown());
 document.querySelectorAll('input[name="type"]').forEach(r => r.addEventListener('change', () => updateCategoryDropdown()));
 document.getElementById('refreshBtn').addEventListener('click', loadData);
 
-// Nav Setup
+// Planner saving omitted for brevity, same as V3
+document.getElementById('budgetForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  appData.budgets.push({ month: getMonthStr(currentDate), account: DOM.budgetAccountSelect.value, category: document.getElementById('budgetCatInput').value, amount: parseFloat(document.getElementById('budgetAmountInput').value) });
+  renderAll(); e.target.reset();
+  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
+});
+
+window.removeBudget = async function(index) {
+  if(confirm('Delete envelope?')) { appData.budgets.splice(index, 1); renderAll(); await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) }); }
+}
+
+DOM.copyLastMonthBtn.addEventListener('click', async () => {
+  const currentMonthStr = getMonthStr(currentDate);
+  const prevDate = new Date(currentDate); prevDate.setMonth(prevDate.getMonth() - 1);
+  const oldBudgets = appData.budgets.filter(b => b.month === getMonthStr(prevDate));
+  if(!oldBudgets.length) return alert("No envelopes found in the previous month.");
+  oldBudgets.forEach(b => appData.budgets.push({ month: currentMonthStr, account: b.account, category: b.category, amount: b.amount }));
+  renderAll();
+  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
+});
+
 function setupNavigation() {
   const tabs = ['Tracker', 'Planner', 'Analytics'];
   tabs.forEach(tab => {
     document.getElementById(`nav${tab}`).addEventListener('click', () => {
       tabs.forEach(t => {
         document.getElementById(`${t.toLowerCase()}Tab`).classList.toggle('hidden', t !== tab);
-        document.getElementById(`nav${t}`).className = t === tab ? 'flex flex-col items-center justify-center w-full h-full text-emerald-600 font-semibold text-sm' : 'flex flex-col items-center justify-center w-full h-full text-gray-400 font-semibold text-sm';
+        document.getElementById(`nav${t}`).className = t === tab ? 'flex flex-col items-center justify-center w-full h-full text-emerald-700 font-semibold text-sm' : 'flex flex-col items-center justify-center w-full h-full text-gray-400 font-semibold text-sm';
       });
     });
   });
