@@ -1,5 +1,33 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbyUoIy1GifiMKxPnh-AOVkwlWsDRKNLH0r_PJsPw0MVteNlkse9v6g4odCz4CJY_bSTRg/exec'; // <-- PASTE URL
+// PWA Manual Install Logic
+let deferredPrompt;
+const installBtn = document.getElementById('installAppBtn');
 
+window.addEventListener('beforeinstallprompt', (e) => {
+  // Prevent the default mini-infobar from appearing on mobile
+  e.preventDefault();
+  // Stash the event so it can be triggered later.
+  deferredPrompt = e;
+  // Unhide our custom install button
+  if (installBtn) installBtn.classList.remove('hidden');
+});
+
+if (installBtn) {
+  installBtn.addEventListener('click', async () => {
+    if (!deferredPrompt) return;
+    
+    // Show the native install prompt
+    deferredPrompt.prompt();
+    
+    // Wait for the user to respond to the prompt
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`User response to the install prompt: ${outcome}`);
+    
+    // We've used the prompt, and can't use it again, throw it away
+    deferredPrompt = null;
+    installBtn.classList.add('hidden');
+  });
+}
 const DOM = {
   heroRemaining: document.getElementById('heroRemaining'),
   heroPlanned: document.getElementById('heroPlanned'),
