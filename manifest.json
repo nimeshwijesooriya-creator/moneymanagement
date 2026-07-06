@@ -1,7 +1,7 @@
 {
-  "name": "WageTracker Wealth",
+  "name": "WageTracker Wealth Manager",
   "short_name": "WageTracker",
-  "description": "Zero-based budgeting and wealth management planner.",
+  "description": "Zero-based envelope spending and structured wealth ledger.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f9fafb",
@@ -9,13 +9,13 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/icon-192.png",
+      "src": "https://cdn-icons-png.flaticon.com/512/2830/2830284.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icon-512.png",
+      "src": "https://cdn-icons-png.flaticon.com/512/2830/2830284.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
