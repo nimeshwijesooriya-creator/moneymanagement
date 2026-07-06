@@ -1,33 +1,5 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbyUoIy1GifiMKxPnh-AOVkwlWsDRKNLH0r_PJsPw0MVteNlkse9v6g4odCz4CJY_bSTRg/exec'; // <-- PASTE URL
-// PWA Manual Install Logic
-let deferredPrompt;
-const installBtn = document.getElementById('installAppBtn');
+const API_URL = 'https://script.google.com/macros/s/AKfycbyUoIy1GifiMKxPnh-AOVkwlWsDRKNLH0r_PJsPw0MVteNlkse9v6g4odCz4CJY_bSTRg/exec'; 
 
-window.addEventListener('beforeinstallprompt', (e) => {
-  // Prevent the default mini-infobar from appearing on mobile
-  e.preventDefault();
-  // Stash the event so it can be triggered later.
-  deferredPrompt = e;
-  // Unhide our custom install button
-  if (installBtn) installBtn.classList.remove('hidden');
-});
-
-if (installBtn) {
-  installBtn.addEventListener('click', async () => {
-    if (!deferredPrompt) return;
-    
-    // Show the native install prompt
-    deferredPrompt.prompt();
-    
-    // Wait for the user to respond to the prompt
-    const { outcome } = await deferredPrompt.userChoice;
-    console.log(`User response to the install prompt: ${outcome}`);
-    
-    // We've used the prompt, and can't use it again, throw it away
-    deferredPrompt = null;
-    installBtn.classList.add('hidden');
-  });
-}
 const DOM = {
   heroRemaining: document.getElementById('heroRemaining'),
   heroPlanned: document.getElementById('heroPlanned'),
@@ -51,10 +23,18 @@ const DOM = {
 
 let appData = { accounts: [], transactions: [], budgets: [] };
 let currentDate = new Date();
+let activeEditIndex = -1;
 
-async function init() { setupNavigation(); updateMonthUI(); await loadData(); }
+async function init() { 
+  setupNavigation(); 
+  setupPWAInstall();
+  updateMonthUI(); 
+  await loadData(); 
+}
 
-function getMonthStr(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; }
+function getMonthStr(date) { 
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; 
+}
 
 function updateMonthUI() {
   const displayStr = currentDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
@@ -72,7 +52,7 @@ async function loadData() {
     const res = await fetch(API_URL);
     appData = await res.json();
     if(!appData.budgets) appData.budgets = [];
-    document.getElementById('trackerTab').classList.remove('hidden'); // Show when loaded
+    document.getElementById('trackerTab').classList.remove('hidden'); 
     renderAll();
   } catch (err) { console.error(err); }
   document.getElementById('loading').classList.add('hidden');
@@ -83,11 +63,12 @@ function renderAll() {
   const currentBudgets = appData.budgets.filter(b => b.month === currentMonthStr);
   const currentTxs = appData.transactions.filter(tx => tx.timestamp.startsWith(currentMonthStr));
 
-  // --- WEALTH ENGINE: Bank Balances & Net Worth ---
+  // --- WEALTH METRICS ENGINE ---
   const accBalances = {};
   appData.accounts.forEach((a, index) => {
     accBalances[a.name] = { bal: a.initial, type: a.type, initial: a.initial, trueIndex: index };
   });
+  
   appData.transactions.forEach(tx => {
     if(tx.timestamp <= getMonthStr(currentDate) + "-31") {
       if(tx.type === 'Income' && accBalances[tx.account]) accBalances[tx.account].bal += tx.amount;
@@ -99,10 +80,9 @@ function renderAll() {
     }
   });
 
-  // Calculate Everyday Cash (for planner) vs Total Assets vs Liabilities
   let unallocatedAvailableCash = 0;
-  
   DOM.balancesGrid.innerHTML = '';
+  
   ['Everyday', 'Savings', 'Liability'].forEach(groupType => {
     let groupHtml = `<h3 class="text-sm font-bold text-gray-500 uppercase mt-4 mb-2">${groupType} Accounts</h3><div class="grid grid-cols-2 gap-3">`;
     let hasItems = false;
@@ -110,13 +90,13 @@ function renderAll() {
     for (const [name, data] of Object.entries(accBalances)) {
       if(data.type === groupType) {
         hasItems = true;
-        if(groupType === 'Everyday') unallocatedAvailableCash += data.bal; // Only use Everyday for budget envelopes
+        if(groupType === 'Everyday') unallocatedAvailableCash += data.bal; 
         
         const isNegative = data.bal < 0;
         groupHtml += `
           <div class="p-4 rounded-xl border border-gray-200 bg-white shadow-sm relative">
-            <button onclick="openEditAccount(${data.trueIndex})" class="absolute top-2 right-2 text-gray-400 hover:text-blue-600 text-lg">✎</button>
-            <h4 class="text-xs font-medium text-gray-500 truncate pr-6">${name}</h4>
+            <button onclick="openEditAccount(${data.trueIndex})" class="absolute top-2 right-2 text-gray-400 hover:text-blue-600 text-base">✎</button>
+            <h4 class="text-xs font-medium text-gray-500 truncate pr-5">${name}</h4>
             <div class="text-lg font-bold ${isNegative ? 'text-red-500' : 'text-gray-800'}">${data.bal.toFixed(2)}</div>
           </div>`;
       }
@@ -125,7 +105,7 @@ function renderAll() {
     if(hasItems) DOM.balancesGrid.innerHTML += groupHtml;
   });
 
-  // --- BUDGET ENGINE ---
+  // --- ENVELOPE CALCULATION ENGINE ---
   let totalPlanned = 0, totalSpent = 0, totalLiabilityDebt = 0;
   const envelopeMetrics = currentBudgets.map(b => ({ ...b, spent: 0 }));
   
@@ -139,16 +119,16 @@ function renderAll() {
     }
   });
 
-  DOM.budgetProgressContainer.innerHTML = envelopeMetrics.length ? '' : '<p class="text-sm text-gray-500">No budget plans for this month.</p>';
+  DOM.budgetProgressContainer.innerHTML = envelopeMetrics.length ? '' : '<p class="text-sm text-gray-500">No budget envelopes matching this month.</p>';
   
-  envelopeMetrics.forEach((m, index) => {
+  envelopeMetrics.forEach((m) => {
     totalPlanned += m.amount;
     const rem = m.amount - m.spent;
-    if (rem < 0) totalLiabilityDebt += Math.abs(rem); // WEALTH Logic: Overspending is debt
+    if (rem < 0) totalLiabilityDebt += Math.abs(rem); 
 
     const pct = Math.min(100, (m.spent / m.amount) * 100);
     const isOver = rem < 0;
-    const trueIndex = appData.budgets.findIndex(b => b.month === m.month && b.category === m.category);
+    const trueIndex = appData.budgets.findIndex(b => b.month === m.month && b.category === m.category && b.account === m.account);
     
     DOM.budgetProgressContainer.innerHTML += `
       <div class="bg-white p-4 rounded-xl border shadow-sm relative">
@@ -159,7 +139,7 @@ function renderAll() {
           <span class="font-bold text-gray-800">${m.category}</span>
           <div class="text-right">
             <div class="text-sm font-semibold ${isOver ? 'text-red-600' : 'text-emerald-600'}">${rem.toFixed(2)} left</div>
-            <div class="text-xs text-gray-400">of ${m.amount.toFixed(2)} planned</div>
+            <div class="text-xs text-gray-400">of ${m.amount.toFixed(2)}</div>
           </div>
         </div>
         <div class="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
@@ -169,11 +149,12 @@ function renderAll() {
     `;
   });
 
-  // Hero Card Updates
+  // Summary Sync
   DOM.heroPlanned.innerText = totalPlanned.toFixed(2);
   DOM.heroSpent.innerText = totalSpent.toFixed(2);
   const remaining = totalPlanned - totalSpent;
   DOM.heroRemaining.innerText = remaining.toFixed(2);
+  DOM.heroRemaining.className = `text-4xl font-bold mb-4 tracking-tight ${remaining < 0 ? 'text-red-400' : 'text-white'}`;
   
   if(totalLiabilityDebt > 0) {
     DOM.liabilityWarning.classList.remove('hidden');
@@ -182,16 +163,13 @@ function renderAll() {
     DOM.liabilityWarning.classList.add('hidden');
   }
 
-  // Planner Cash
   DOM.unallocatedCash.innerText = (unallocatedAvailableCash - totalPlanned).toFixed(2);
   DOM.copyLastMonthBtn.classList.toggle('hidden', envelopeMetrics.length > 0);
 
   populateSelects(currentBudgets);
 }
 
-// --- FORMS & ACTIONS ---
-
-// New: Account Creator
+// --- CONTROLLERS & API WORKER POSTS ---
 document.getElementById('accountForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const payload = {
@@ -203,6 +181,18 @@ document.getElementById('accountForm').addEventListener('submit', async (e) => {
   appData.accounts.push({ name: payload.name, type: payload.type, initial: payload.initialBalance });
   renderAll(); e.target.reset();
   await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+});
+
+document.getElementById('budgetForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  appData.budgets.push({ 
+    month: getMonthStr(currentDate), 
+    account: DOM.budgetAccountSelect.value, 
+    category: document.getElementById('budgetCatInput').value, 
+    amount: parseFloat(document.getElementById('budgetAmountInput').value) 
+  });
+  renderAll(); e.target.reset();
+  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
 });
 
 document.getElementById('txForm').addEventListener('submit', async (e) => {
@@ -231,60 +221,25 @@ document.getElementById('txForm').addEventListener('submit', async (e) => {
   document.getElementById('loading').classList.add('hidden');
 });
 
-// Category & Transfer UI Logic
-function populateSelects(currentBudgets) {
-  const accHtml = appData.accounts.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
-  if (!DOM.accountSelect.options.length) DOM.accountSelect.innerHTML = accHtml;
-  if (!DOM.budgetAccountSelect.options.length) DOM.budgetAccountSelect.innerHTML = accHtml;
-  
-  // Exclude current account from 'To' dropdown
-  const toAccHtml = appData.accounts.filter(a => a.name !== DOM.accountSelect.value).map(a => `<option value="${a.name}">${a.name}</option>`).join('');
-  DOM.transferToSelect.innerHTML = toAccHtml;
-  
-  updateCategoryDropdown(currentBudgets);
-}
-
-function updateCategoryDropdown(currentBudgets) {
-  if(!currentBudgets) currentBudgets = appData.budgets.filter(b => b.month === getMonthStr(currentDate));
-  const account = DOM.accountSelect.value;
-  const type = document.querySelector('input[name="type"]:checked').value;
-  
-  DOM.categoryContainer.classList.add('hidden');
-  DOM.transferToContainer.classList.add('hidden');
-  DOM.accountLabel.innerText = type === 'Transfer' ? 'From Account' : 'Account';
-
-  if (type === 'Expense') {
-    const matched = currentBudgets.filter(b => b.account === account);
-    DOM.categoryContainer.classList.remove('hidden');
-    DOM.txCategorySelect.innerHTML = '<option value="">-- Unplanned Expense --</option>' + 
-      matched.map(b => `<option value="${b.category}">${b.category}</option>`).join('');
-  } else if (type === 'Transfer') {
-    DOM.transferToContainer.classList.remove('hidden');
-    // Re-filter the 'To' list to prevent sending to itself
-    DOM.transferToSelect.innerHTML = appData.accounts.filter(a => a.name !== account).map(a => `<option value="${a.name}">${a.name}</option>`).join('');
-  }
-}
-
-DOM.accountSelect.addEventListener('change', () => updateCategoryDropdown());
-document.querySelectorAll('input[name="type"]').forEach(r => r.addEventListener('change', () => updateCategoryDropdown()));
-document.getElementById('refreshBtn').addEventListener('click', loadData);
-
-// Planner saving omitted for brevity, same as V3
-document.getElementById('budgetForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  appData.budgets.push({ month: getMonthStr(currentDate), account: DOM.budgetAccountSelect.value, category: document.getElementById('budgetCatInput').value, amount: parseFloat(document.getElementById('budgetAmountInput').value) });
-  renderAll(); e.target.reset();
+DOM.copyLastMonthBtn.addEventListener('click', async () => {
+  const currentMonthStr = getMonthStr(currentDate);
+  const prevDate = new Date(currentDate); prevDate.setMonth(prevDate.getMonth() - 1);
+  const oldBudgets = appData.budgets.filter(b => b.month === getMonthStr(prevDate));
+  if(!oldBudgets.length) return alert("No envelopes found in the previous month.");
+  oldBudgets.forEach(b => appData.budgets.push({ month: currentMonthStr, account: b.account, category: b.category, amount: b.amount }));
+  renderAll();
   await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
 });
 
 window.removeBudget = async function(index) {
-  if(confirm('Delete envelope?')) { appData.budgets.splice(index, 1); renderAll(); await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) }); }
+  if(confirm('Delete envelope?')) { 
+    appData.budgets.splice(index, 1); 
+    renderAll(); 
+    await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) }); 
+  }
 }
 
-// --- EDIT / DELETE LOGIC ---
-let activeEditIndex = -1;
-
-// Accounts
+// --- MODAL ACTIONS ---
 window.openEditAccount = function(index) {
   activeEditIndex = index;
   const acc = appData.accounts[index];
@@ -304,7 +259,7 @@ window.saveAccountEdit = async function() {
 }
 
 window.deleteAccount = async function() {
-  if(confirm('Delete this account? Note: Transactions tied to this account will become orphaned.')) {
+  if(confirm('Delete account entry?')) {
     appData.accounts.splice(activeEditIndex, 1);
     document.getElementById('editAccountModal').classList.add('hidden');
     renderAll();
@@ -312,7 +267,6 @@ window.deleteAccount = async function() {
   }
 }
 
-// Envelopes
 window.openEditBudget = function(index) {
   activeEditIndex = index;
   const b = appData.budgets[index];
@@ -329,16 +283,39 @@ window.saveBudgetEdit = async function() {
   await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
 }
 
-DOM.copyLastMonthBtn.addEventListener('click', async () => {
-  const currentMonthStr = getMonthStr(currentDate);
-  const prevDate = new Date(currentDate); prevDate.setMonth(prevDate.getMonth() - 1);
-  const oldBudgets = appData.budgets.filter(b => b.month === getMonthStr(prevDate));
-  if(!oldBudgets.length) return alert("No envelopes found in the previous month.");
-  oldBudgets.forEach(b => appData.budgets.push({ month: currentMonthStr, account: b.account, category: b.category, amount: b.amount }));
-  renderAll();
-  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
-});
+// --- SELECT POPULATION UI WORKERS ---
+function populateSelects(currentBudgets) {
+  const accHtml = appData.accounts.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
+  if (!DOM.accountSelect.options.length) DOM.accountSelect.innerHTML = accHtml;
+  if (!DOM.budgetAccountSelect.options.length) DOM.budgetAccountSelect.innerHTML = accHtml;
+  updateCategoryDropdown(currentBudgets);
+}
 
+function updateCategoryDropdown(currentBudgets) {
+  if(!currentBudgets) currentBudgets = appData.budgets.filter(b => b.month === getMonthStr(currentDate));
+  const account = DOM.accountSelect.value;
+  const type = document.querySelector('input[name="type"]:checked').value;
+  
+  DOM.categoryContainer.classList.add('hidden');
+  DOM.transferToContainer.classList.add('hidden');
+  DOM.accountLabel.innerText = type === 'Transfer' ? 'From Account' : 'Account';
+
+  if (type === 'Expense') {
+    const matched = currentBudgets.filter(b => b.account === account);
+    DOM.categoryContainer.classList.remove('hidden');
+    DOM.txCategorySelect.innerHTML = '<option value="">-- Unplanned Expense --</option>' + 
+      matched.map(b => `<option value="${b.category}">${b.category}</option>`).join('');
+  } else if (type === 'Transfer') {
+    DOM.transferToContainer.classList.remove('hidden');
+    DOM.transferToSelect.innerHTML = appData.accounts.filter(a => a.name !== account).map(a => `<option value="${a.name}">${a.name}</option>`).join('');
+  }
+}
+
+DOM.accountSelect.addEventListener('change', () => updateCategoryDropdown());
+document.querySelectorAll('input[name="type"]').forEach(r => r.addEventListener('change', () => updateCategoryDropdown()));
+document.getElementById('refreshBtn').addEventListener('click', loadData);
+
+// --- NAVIGATION CORE ---
 function setupNavigation() {
   const tabs = ['Tracker', 'Planner', 'Analytics'];
   tabs.forEach(tab => {
@@ -349,6 +326,25 @@ function setupNavigation() {
       });
     });
   });
+}
+
+// --- PROMPT DRIVEN PWA TRAPS ---
+function setupPWAInstall() {
+  let deferredPrompt;
+  const installBtn = document.getElementById('installAppBtn');
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault(); deferredPrompt = e;
+    if (installBtn) installBtn.classList.remove('hidden');
+  });
+  if (installBtn) {
+    installBtn.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      installBtn.classList.add('hidden');
+    });
+  }
 }
 
 init();
