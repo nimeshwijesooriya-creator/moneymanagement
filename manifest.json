@@ -2,7 +2,7 @@
   "name": "WageTracker Wealth Manager",
   "short_name": "WageTracker",
   "description": "Zero-based envelope spending and structured wealth ledger.",
-  "start_url": "/",
+  "start_url": "./",
   "display": "standalone",
   "background_color": "#f9fafb",
   "theme_color": "#047857",
