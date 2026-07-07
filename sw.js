@@ -1,9 +1,10 @@
 const CACHE_NAME = 'wagetracker-v4.1';
+// Change from '/' to './'
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/app.js',
-  '/manifest.json'
+  './',
+  './index.html',
+  './app.js',
+  './manifest.json'
 ];
 
 self.addEventListener('install', (event) => {
