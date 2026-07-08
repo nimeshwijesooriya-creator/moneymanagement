@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wagetracker-v4.1';
+const CACHE_NAME = 'wagetracker-v5.0';
 // Change from '/' to './'
 const STATIC_ASSETS = [
   './index.html',
