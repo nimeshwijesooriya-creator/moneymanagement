@@ -1,4 +1,4 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbyUoIy1GifiMKxPnh-AOVkwlWsDRKNLH0r_PJsPw0MVteNlkse9v6g4odCz4CJY_bSTRg/exec'; 
+const API_URL = 'https://script.google.com/macros/s/AKfycbzE07h2CogJf4xd_EXt2KHU1FO0bWasGxzAcgBF4WgzT-0tUgCD5PmoKY7mFNGmLTA9Rg/exec'; 
 
 const DOM = {
   heroRemaining: document.getElementById('heroRemaining'),
