@@ -1,350 +1,250 @@
-const API_URL = 'https://script.google.com/macros/s/AKfycbzE07h2CogJf4xd_EXt2KHU1FO0bWasGxzAcgBF4WgzT-0tUgCD5PmoKY7mFNGmLTA9Rg/exec'; 
+// ====== REPLACE WITH YOUR NEW DEPLOYMENT URL ======
+const API_URL = 'https://script.google.com/macros/s/AKfycbzE07h2CogJf4xd_EXt2KHU1FO0bWasGxzAcgBF4WgzT-0tUgCD5PmoKY7mFNGmLTA9Rg/exec';
 
-const DOM = {
-  heroRemaining: document.getElementById('heroRemaining'),
-  heroPlanned: document.getElementById('heroPlanned'),
-  heroSpent: document.getElementById('heroSpent'),
-  liabilityWarning: document.getElementById('liabilityWarning'),
-  owedToSavings: document.getElementById('owedToSavings'),
-  monthDisplay: document.getElementById('monthDisplay'),
-  envelopeMonthLabel: document.getElementById('envelopeMonthLabel'),
-  budgetProgressContainer: document.getElementById('budgetProgressContainer'),
-  unallocatedCash: document.getElementById('unallocatedCash'),
-  copyLastMonthBtn: document.getElementById('copyLastMonthBtn'),
-  accountSelect: document.getElementById('accountSelect'),
-  txCategorySelect: document.getElementById('txCategorySelect'),
-  categoryContainer: document.getElementById('categoryContainer'),
-  budgetAccountSelect: document.getElementById('budgetAccountSelect'),
-  balancesGrid: document.getElementById('balancesGrid'),
-  transferToContainer: document.getElementById('transferToContainer'),
-  transferToSelect: document.getElementById('transferToSelect'),
-  accountLabel: document.getElementById('accountLabel')
-};
+let db = { accounts: [], transactions: [], budgets: [] };
+let currentTab = 'wealth';
+let txType = 'Expense';
 
-let appData = { accounts: [], transactions: [], budgets: [] };
-let currentDate = new Date();
-let activeEditIndex = -1;
+// DOM Elements
+const loadingEl = document.getElementById('loading');
+const viewWealth = document.getElementById('view-wealth');
+const viewPlanner = document.getElementById('view-planner');
+const viewTransactions = document.getElementById('view-transactions');
+const plannerMonthInput = document.getElementById('planner-month');
 
-async function init() { 
-  setupNavigation(); 
-  setupPWAInstall();
-  updateMonthUI(); 
-  await loadData(); 
-}
+// Initialize Date
+const now = new Date();
+plannerMonthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-function getMonthStr(date) { 
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; 
-}
-
-function updateMonthUI() {
-  const displayStr = currentDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
-  DOM.monthDisplay.innerText = displayStr;
-  DOM.envelopeMonthLabel.innerText = displayStr;
-  if(appData.accounts.length) renderAll();
-}
-
-document.getElementById('prevMonth').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); updateMonthUI(); });
-document.getElementById('nextMonth').addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); updateMonthUI(); });
-
-async function loadData() {
-  document.getElementById('loading').classList.remove('hidden');
+async function initApp() {
   try {
-    const res = await fetch(API_URL);
-    appData = await res.json();
-    if(!appData.budgets) appData.budgets = [];
-    document.getElementById('trackerTab').classList.remove('hidden'); 
-    renderAll();
-  } catch (err) { console.error(err); }
-  document.getElementById('loading').classList.add('hidden');
+    const response = await fetch(API_URL);
+    db = await response.json();
+    loadingEl.classList.add('hidden');
+    switchTab('wealth');
+  } catch (error) {
+    loadingEl.innerText = "Error loading data. Check internet or API URL.";
+  }
 }
 
-function renderAll() {
-  const currentMonthStr = getMonthStr(currentDate);
-  const currentBudgets = appData.budgets.filter(b => b.month === currentMonthStr);
-  const currentTxs = appData.transactions.filter(tx => tx.timestamp.startsWith(currentMonthStr));
+// Navigation
+document.getElementById('nav-wealth').addEventListener('click', () => switchTab('wealth'));
+document.getElementById('nav-planner').addEventListener('click', () => switchTab('planner'));
+document.getElementById('nav-transactions').addEventListener('click', () => switchTab('transactions'));
+plannerMonthInput.addEventListener('change', () => renderPlanner());
 
-  // --- WEALTH METRICS ENGINE ---
-  const accBalances = {};
-  appData.accounts.forEach((a, index) => {
-    accBalances[a.name] = { bal: a.initial, type: a.type, initial: a.initial, trueIndex: index };
-  });
+function switchTab(tab) {
+  currentTab = tab;
+  viewWealth.classList.add('hidden');
+  viewPlanner.classList.add('hidden');
+  viewTransactions.classList.add('hidden');
   
-  appData.transactions.forEach(tx => {
-    if(tx.timestamp <= getMonthStr(currentDate) + "-31") {
-      if(tx.type === 'Income' && accBalances[tx.account]) accBalances[tx.account].bal += tx.amount;
-      if(tx.type === 'Expense' && accBalances[tx.account]) accBalances[tx.account].bal -= tx.amount;
-      if(tx.type === 'Transfer') {
-        if(accBalances[tx.account]) accBalances[tx.account].bal -= tx.amount;
-        if(accBalances[tx.toAccount]) accBalances[tx.toAccount].bal += tx.amount;
-      }
+  document.getElementById('nav-wealth').classList.remove('text-emerald-700');
+  document.getElementById('nav-planner').classList.remove('text-emerald-700');
+  document.getElementById('nav-transactions').classList.remove('text-emerald-700');
+  document.getElementById(`nav-${tab}`).classList.add('text-emerald-700');
+  document.getElementById('header-title').innerText = tab === 'wealth' ? 'Net Worth & Balances' : tab === 'planner' ? 'Budget Planner' : 'Transactions';
+
+  if(tab === 'wealth') renderWealth();
+  if(tab === 'planner') renderPlanner();
+  if(tab === 'transactions') renderTransactions();
+}
+
+function calculateAccountBalance(accountName, initialBalance) {
+  let balance = initialBalance;
+  db.transactions.forEach(tx => {
+    if (tx.account === accountName) {
+      if (tx.type === 'Income') balance += tx.amount;
+      if (tx.type === 'Expense' || tx.type === 'Transfer') balance -= tx.amount;
+    }
+    if (tx.type === 'Transfer' && tx.toAccount === accountName) {
+      balance += tx.amount;
     }
   });
+  return balance;
+}
 
-  let unallocatedAvailableCash = 0;
-  DOM.balancesGrid.innerHTML = '';
+function renderWealth() {
+  const container = document.getElementById('accounts-container');
+  container.innerHTML = '';
+  let totalNetWorth = 0;
+
+  const groups = { 'Checking / Everyday': [], 'Savings': [], 'Monthly Fixed Payment': [] };
   
-  ['Everyday', 'Savings', 'Liability'].forEach(groupType => {
-    let groupHtml = `<h3 class="text-sm font-bold text-gray-500 uppercase mt-4 mb-2">${groupType} Accounts</h3><div class="grid grid-cols-2 gap-3">`;
-    let hasItems = false;
-    
-    for (const [name, data] of Object.entries(accBalances)) {
-      if(data.type === groupType) {
-        hasItems = true;
-        if(groupType === 'Everyday') unallocatedAvailableCash += data.bal; 
-        
-        const isNegative = data.bal < 0;
-        groupHtml += `
-          <div class="p-4 rounded-xl border border-gray-200 bg-white shadow-sm relative">
-            <button onclick="openEditAccount(${data.trueIndex})" class="absolute top-2 right-2 text-gray-400 hover:text-blue-600 text-base">✎</button>
-            <h4 class="text-xs font-medium text-gray-500 truncate pr-5">${name}</h4>
-            <div class="text-lg font-bold ${isNegative ? 'text-red-500' : 'text-gray-800'}">${data.bal.toFixed(2)}</div>
-          </div>`;
-      }
-    }
-    groupHtml += `</div>`;
-    if(hasItems) DOM.balancesGrid.innerHTML += groupHtml;
+  db.accounts.forEach(acc => {
+    const currentBalance = calculateAccountBalance(acc.name, acc.initial);
+    totalNetWorth += currentBalance;
+    if(groups[acc.type]) groups[acc.type].push({ ...acc, currentBalance });
   });
 
-  // --- ENVELOPE CALCULATION ENGINE ---
-  let totalPlanned = 0, totalSpent = 0, totalLiabilityDebt = 0;
-  const envelopeMetrics = currentBudgets.map(b => ({ ...b, spent: 0 }));
-  
-  currentTxs.forEach(tx => {
-    if (tx.type === 'Expense' && tx.category) {
-      const env = envelopeMetrics.find(m => m.account === tx.account && m.category === tx.category);
-      if (env) {
-        env.spent += tx.amount;
-        totalSpent += tx.amount;
-      }
-    }
+  document.getElementById('wealth-total').innerText = totalNetWorth.toFixed(2);
+
+  for (const [type, accs] of Object.entries(groups)) {
+    if (accs.length === 0) continue;
+    let groupHtml = `<h3 class="text-xs font-bold uppercase text-gray-500 mb-2 mt-4">${type}</h3><div class="grid grid-cols-2 gap-3">`;
+    accs.forEach(a => {
+      groupHtml += `
+        <div class="bg-white border rounded-xl p-3 shadow-sm">
+          <div class="text-sm text-gray-600 font-medium truncate">${a.name}</div>
+          <div class="text-lg font-bold text-gray-800">${a.currentBalance.toFixed(2)}</div>
+        </div>`;
+    });
+    container.innerHTML += groupHtml + '</div>';
+  }
+}
+
+function renderPlanner() {
+  const selectedMonth = plannerMonthInput.value;
+  const container = document.getElementById('envelopes-container');
+  const accSelect = document.getElementById('env-account');
+  container.innerHTML = '';
+  accSelect.innerHTML = '';
+
+  let allocatedCash = 0;
+  let totalNetWorth = 0;
+
+  // Calculate Net Worth for Unallocated Math
+  db.accounts.forEach(acc => {
+    totalNetWorth += calculateAccountBalance(acc.name, acc.initial);
+    accSelect.innerHTML += `<option value="${acc.name}">${acc.name}</option>`;
   });
 
-  DOM.budgetProgressContainer.innerHTML = envelopeMetrics.length ? '' : '<p class="text-sm text-gray-500">No budget envelopes matching this month.</p>';
+  const monthBudgets = db.budgets.filter(b => b.month === selectedMonth);
   
-  envelopeMetrics.forEach((m) => {
-    totalPlanned += m.amount;
-    const rem = m.amount - m.spent;
-    if (rem < 0) totalLiabilityDebt += Math.abs(rem); 
-
-    const pct = Math.min(100, (m.spent / m.amount) * 100);
-    const isOver = rem < 0;
-    const trueIndex = appData.budgets.findIndex(b => b.month === m.month && b.category === m.category && b.account === m.account);
-    
-    DOM.budgetProgressContainer.innerHTML += `
-      <div class="bg-white p-4 rounded-xl border shadow-sm relative">
-        <button onclick="openEditBudget(${trueIndex})" class="absolute top-2 right-8 text-blue-400 hover:text-blue-600 font-bold">✎</button>
-        <button onclick="removeBudget(${trueIndex})" class="absolute top-2 right-2 text-red-400 hover:text-red-600 font-bold">✕</button>
-        <div class="text-xs text-gray-500 mb-1">${m.account}</div>
-        <div class="flex justify-between items-end mb-2">
-          <span class="font-bold text-gray-800">${m.category}</span>
-          <div class="text-right">
-            <div class="text-sm font-semibold ${isOver ? 'text-red-600' : 'text-emerald-600'}">${rem.toFixed(2)} left</div>
-            <div class="text-xs text-gray-400">of ${m.amount.toFixed(2)}</div>
-          </div>
-        </div>
-        <div class="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
-          <div class="${isOver ? 'bg-red-500' : 'bg-emerald-500'} h-full transition-all" style="width: ${pct}%"></div>
-        </div>
-      </div>
-    `;
-  });
-
-  // Summary Sync
-  DOM.heroPlanned.innerText = totalPlanned.toFixed(2);
-  DOM.heroSpent.innerText = totalSpent.toFixed(2);
-  const remaining = totalPlanned - totalSpent;
-  DOM.heroRemaining.innerText = remaining.toFixed(2);
-  DOM.heroRemaining.className = `text-4xl font-bold mb-4 tracking-tight ${remaining < 0 ? 'text-red-400' : 'text-white'}`;
-  
-  if(totalLiabilityDebt > 0) {
-    DOM.liabilityWarning.classList.remove('hidden');
-    DOM.owedToSavings.innerText = totalLiabilityDebt.toFixed(2);
+  if (monthBudgets.length === 0) {
+    container.innerHTML = '<p class="text-sm text-gray-500">No budget envelopes found for this month.</p>';
   } else {
-    DOM.liabilityWarning.classList.add('hidden');
-  }
-
-  DOM.unallocatedCash.innerText = (unallocatedAvailableCash - totalPlanned).toFixed(2);
-  DOM.copyLastMonthBtn.classList.toggle('hidden', envelopeMetrics.length > 0);
-
-  populateSelects(currentBudgets);
-}
-
-// --- CONTROLLERS & API WORKER POSTS ---
-document.getElementById('accountForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const payload = {
-    action: 'addAccount',
-    name: document.getElementById('accNameInput').value,
-    type: document.getElementById('accTypeSelect').value,
-    initialBalance: parseFloat(document.getElementById('accBalInput').value)
-  };
-  appData.accounts.push({ name: payload.name, type: payload.type, initial: payload.initialBalance });
-  renderAll(); e.target.reset();
-  await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
-});
-
-document.getElementById('budgetForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  appData.budgets.push({ 
-    month: getMonthStr(currentDate), 
-    account: DOM.budgetAccountSelect.value, 
-    category: document.getElementById('budgetCatInput').value, 
-    amount: parseFloat(document.getElementById('budgetAmountInput').value) 
-  });
-  renderAll(); e.target.reset();
-  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
-});
-
-document.getElementById('txForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fakeDateForMonth = new Date(currentDate);
-  const today = new Date();
-  if(fakeDateForMonth.getMonth() === today.getMonth()) { fakeDateForMonth.setDate(today.getDate()); } 
-  else { fakeDateForMonth.setDate(15); } 
-  
-  const type = document.querySelector('input[name="type"]:checked').value;
-  const payload = {
-    action: 'addTransaction',
-    timestamp: fakeDateForMonth.toISOString(),
-    type: type,
-    account: DOM.accountSelect.value,
-    category: type === 'Expense' ? DOM.txCategorySelect.value : '',
-    toAccount: type === 'Transfer' ? DOM.transferToSelect.value : '',
-    amount: parseFloat(document.getElementById('amountInput').value),
-    note: document.getElementById('noteInput').value
-  };
-
-  appData.transactions.push(payload);
-  renderAll(); e.target.reset();
-  document.getElementById('loading').classList.remove('hidden');
-  await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
-  document.getElementById('loading').classList.add('hidden');
-});
-
-DOM.copyLastMonthBtn.addEventListener('click', async () => {
-  const currentMonthStr = getMonthStr(currentDate);
-  const prevDate = new Date(currentDate); prevDate.setMonth(prevDate.getMonth() - 1);
-  const oldBudgets = appData.budgets.filter(b => b.month === getMonthStr(prevDate));
-  if(!oldBudgets.length) return alert("No envelopes found in the previous month.");
-  oldBudgets.forEach(b => appData.budgets.push({ month: currentMonthStr, account: b.account, category: b.category, amount: b.amount }));
-  renderAll();
-  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
-});
-
-window.removeBudget = async function(index) {
-  if(confirm('Delete envelope?')) { 
-    appData.budgets.splice(index, 1); 
-    renderAll(); 
-    await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) }); 
-  }
-}
-
-// --- MODAL ACTIONS ---
-window.openEditAccount = function(index) {
-  activeEditIndex = index;
-  const acc = appData.accounts[index];
-  document.getElementById('editAccName').value = acc.name;
-  document.getElementById('editAccType').value = acc.type;
-  document.getElementById('editAccBal').value = acc.initial;
-  document.getElementById('editAccountModal').classList.remove('hidden');
-}
-
-window.saveAccountEdit = async function() {
-  appData.accounts[activeEditIndex].name = document.getElementById('editAccName').value;
-  appData.accounts[activeEditIndex].type = document.getElementById('editAccType').value;
-  appData.accounts[activeEditIndex].initial = parseFloat(document.getElementById('editAccBal').value);
-  document.getElementById('editAccountModal').classList.add('hidden');
-  renderAll();
-  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveAccounts', accounts: appData.accounts }) });
-}
-
-window.deleteAccount = async function() {
-  if(confirm('Delete account entry?')) {
-    appData.accounts.splice(activeEditIndex, 1);
-    document.getElementById('editAccountModal').classList.add('hidden');
-    renderAll();
-    await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveAccounts', accounts: appData.accounts }) });
-  }
-}
-
-window.openEditBudget = function(index) {
-  activeEditIndex = index;
-  const b = appData.budgets[index];
-  document.getElementById('editBudCat').value = b.category;
-  document.getElementById('editBudAmt').value = b.amount;
-  document.getElementById('editBudgetModal').classList.remove('hidden');
-}
-
-window.saveBudgetEdit = async function() {
-  appData.budgets[activeEditIndex].category = document.getElementById('editBudCat').value;
-  appData.budgets[activeEditIndex].amount = parseFloat(document.getElementById('editBudAmt').value);
-  document.getElementById('editBudgetModal').classList.add('hidden');
-  renderAll();
-  await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveBudgets', budgets: appData.budgets }) });
-}
-
-// --- SELECT POPULATION UI WORKERS ---
-function populateSelects(currentBudgets) {
-  const accHtml = appData.accounts.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
-  if (!DOM.accountSelect.options.length) DOM.accountSelect.innerHTML = accHtml;
-  if (!DOM.budgetAccountSelect.options.length) DOM.budgetAccountSelect.innerHTML = accHtml;
-  updateCategoryDropdown(currentBudgets);
-}
-
-function updateCategoryDropdown(currentBudgets) {
-  if(!currentBudgets) currentBudgets = appData.budgets.filter(b => b.month === getMonthStr(currentDate));
-  const account = DOM.accountSelect.value;
-  const type = document.querySelector('input[name="type"]:checked').value;
-  
-  DOM.categoryContainer.classList.add('hidden');
-  DOM.transferToContainer.classList.add('hidden');
-  DOM.accountLabel.innerText = type === 'Transfer' ? 'From Account' : 'Account';
-
-  if (type === 'Expense') {
-    const matched = currentBudgets.filter(b => b.account === account);
-    DOM.categoryContainer.classList.remove('hidden');
-    DOM.txCategorySelect.innerHTML = '<option value="">-- Unplanned Expense --</option>' + 
-      matched.map(b => `<option value="${b.category}">${b.category}</option>`).join('');
-  } else if (type === 'Transfer') {
-    DOM.transferToContainer.classList.remove('hidden');
-    DOM.transferToSelect.innerHTML = appData.accounts.filter(a => a.name !== account).map(a => `<option value="${a.name}">${a.name}</option>`).join('');
-  }
-}
-
-DOM.accountSelect.addEventListener('change', () => updateCategoryDropdown());
-document.querySelectorAll('input[name="type"]').forEach(r => r.addEventListener('change', () => updateCategoryDropdown()));
-document.getElementById('refreshBtn').addEventListener('click', loadData);
-
-// --- NAVIGATION CORE ---
-function setupNavigation() {
-  const tabs = ['Tracker', 'Planner', 'Analytics'];
-  tabs.forEach(tab => {
-    document.getElementById(`nav${tab}`).addEventListener('click', () => {
-      tabs.forEach(t => {
-        document.getElementById(`${t.toLowerCase()}Tab`).classList.toggle('hidden', t !== tab);
-        document.getElementById(`nav${t}`).className = t === tab ? 'flex flex-col items-center justify-center w-full h-full text-emerald-700 font-semibold text-sm' : 'flex flex-col items-center justify-center w-full h-full text-gray-400 font-semibold text-sm';
+    monthBudgets.forEach(b => {
+      allocatedCash += b.amount;
+      // Calculate spent logic (Transactions matching category + month)
+      let spent = 0;
+      db.transactions.forEach(tx => {
+        if (tx.type === 'Expense' && tx.category === b.category && tx.timestamp.startsWith(selectedMonth)) {
+          spent += tx.amount;
+        }
       });
-    });
-  });
-}
+      let remaining = b.amount - spent;
+      let barWidth = Math.min((spent / b.amount) * 100, 100);
 
-// --- PROMPT DRIVEN PWA TRAPS ---
-function setupPWAInstall() {
-  let deferredPrompt;
-  const installBtn = document.getElementById('installAppBtn');
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault(); deferredPrompt = e;
-    if (installBtn) installBtn.classList.remove('hidden');
-  });
-  if (installBtn) {
-    installBtn.addEventListener('click', async () => {
-      if (!deferredPrompt) return;
-      deferredPrompt.prompt();
-      await deferredPrompt.userChoice;
-      deferredPrompt = null;
-      installBtn.classList.add('hidden');
+      container.innerHTML += `
+        <div class="bg-white border rounded-xl p-4 shadow-sm">
+          <div class="flex justify-between items-center mb-1">
+            <span class="font-bold text-gray-700">${b.category} <span class="text-xs text-gray-400 font-normal">(${b.account})</span></span>
+            <span class="font-bold ${remaining < 0 ? 'text-red-500' : 'text-emerald-600'}">${remaining.toFixed(2)}</span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-2 mb-1"><div class="bg-blue-500 h-2 rounded-full" style="width: ${barWidth}%"></div></div>
+          <div class="flex justify-between text-xs text-gray-500"><span>Spent: ${spent.toFixed(2)}</span><span>Budget: ${b.amount.toFixed(2)}</span></div>
+        </div>`;
     });
   }
+
+  const unallocatedCash = totalNetWorth - allocatedCash;
+  document.getElementById('planner-allocated').innerText = allocatedCash.toFixed(2);
+  document.getElementById('planner-unallocated').innerText = unallocatedCash.toFixed(2);
 }
 
-init();
+function renderTransactions() {
+  const fromSelect = document.getElementById('tx-account');
+  const toSelect = document.getElementById('tx-to-account');
+  const catSelect = document.getElementById('tx-category');
+  const histContainer = document.getElementById('history-container');
+
+  fromSelect.innerHTML = ''; toSelect.innerHTML = ''; catSelect.innerHTML = '<option value="">-- Unplanned / No Category --</option>';
+  
+  db.accounts.forEach(a => {
+    fromSelect.innerHTML += `<option value="${a.name}">${a.name}</option>`;
+    toSelect.innerHTML += `<option value="${a.name}">${a.name}</option>`;
+  });
+
+  const selectedMonth = plannerMonthInput.value;
+  db.budgets.filter(b => b.month === selectedMonth).forEach(b => {
+    catSelect.innerHTML += `<option value="${b.category}">${b.category}</option>`;
+  });
+
+  histContainer.innerHTML = '';
+  const recent = [...db.transactions].reverse().slice(0, 20);
+  recent.forEach(tx => {
+    histContainer.innerHTML += `
+      <div class="bg-white border rounded-lg p-3 flex justify-between shadow-sm">
+        <div>
+          <div class="font-bold text-sm text-gray-800">${tx.note || tx.category || 'Transaction'}</div>
+          <div class="text-xs text-gray-500">${tx.timestamp.split('T')[0]} • ${tx.account}</div>
+        </div>
+        <div class="font-bold ${tx.type === 'Income' ? 'text-emerald-600' : 'text-red-600'}">
+          ${tx.type === 'Income' ? '+' : '-'}${tx.amount.toFixed(2)}
+        </div>
+      </div>`;
+  });
+}
+
+// Transaction Tabs Logic
+document.querySelectorAll('.tx-tab').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    document.querySelectorAll('.tx-tab').forEach(b => { b.classList.remove('text-red-600', 'text-emerald-600', 'text-blue-600', 'bg-red-100', 'bg-emerald-100', 'bg-blue-100'); b.classList.add('text-gray-500'); });
+    
+    txType = e.target.innerText;
+    if (txType === 'Expense') e.target.classList.add('text-red-600', 'bg-red-100');
+    if (txType === 'Income') e.target.classList.add('text-emerald-600', 'bg-emerald-100');
+    if (txType === 'Transfer') e.target.classList.add('text-blue-600', 'bg-blue-100');
+
+    document.getElementById('wrap-to-account').classList.toggle('hidden', txType !== 'Transfer');
+    document.getElementById('wrap-envelope').classList.toggle('hidden', txType === 'Transfer');
+  });
+});
+
+// Post Data function
+async function postData(payload, btnElement) {
+  const origText = btnElement.innerText;
+  btnElement.innerText = "Saving...";
+  try {
+    await fetch(API_URL, { method: 'POST', body: JSON.stringify(payload) });
+    await initApp(); // Refresh data
+    btnElement.closest('form').reset();
+  } catch (error) {
+    alert("Error saving data!");
+  }
+  btnElement.innerText = origText;
+}
+
+// Event Listeners for Forms
+document.getElementById('form-account').addEventListener('submit', (e) => {
+  e.preventDefault();
+  postData({
+    action: 'addAccount',
+    name: document.getElementById('acc-name').value,
+    type: document.getElementById('acc-type').value,
+    initialBalance: parseFloat(document.getElementById('acc-balance').value)
+  }, e.target.querySelector('button'));
+});
+
+document.getElementById('form-envelope').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const currentBudgets = db.budgets.filter(b => b.month === plannerMonthInput.value);
+  currentBudgets.push({
+    month: plannerMonthInput.value,
+    account: document.getElementById('env-account').value,
+    category: document.getElementById('env-category').value,
+    amount: parseFloat(document.getElementById('env-amount').value)
+  });
+  
+  postData({ action: 'saveBudgets', budgets: db.budgets.filter(b => b.month !== plannerMonthInput.value).concat(currentBudgets) }, e.target.querySelector('button'));
+});
+
+document.getElementById('form-transaction').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const nowStr = new Date().toISOString();
+  postData({
+    action: 'addTransaction',
+    timestamp: nowStr,
+    account: document.getElementById('tx-account').value,
+    toAccount: txType === 'Transfer' ? document.getElementById('tx-to-account').value : '',
+    type: txType,
+    category: txType !== 'Transfer' ? document.getElementById('tx-category').value : '',
+    amount: parseFloat(document.getElementById('tx-amount').value),
+    note: document.getElementById('tx-note').value
+  }, e.target.querySelector('button'));
+});
+
+// Run App
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js'); }
+initApp();
