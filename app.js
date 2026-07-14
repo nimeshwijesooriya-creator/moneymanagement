@@ -35,16 +35,27 @@ plannerMonthInput.addEventListener('change', () => renderPlanner());
 
 function switchTab(tab) {
   currentTab = tab;
+  
+  // 1. Hide all views
   viewWealth.classList.add('hidden');
   viewPlanner.classList.add('hidden');
   viewTransactions.classList.add('hidden');
   
+  // 2. UNHIDE the active view (This was the missing part!)
+  if (tab === 'wealth') viewWealth.classList.remove('hidden');
+  if (tab === 'planner') viewPlanner.classList.remove('hidden');
+  if (tab === 'transactions') viewTransactions.classList.remove('hidden');
+
+  // 3. Update bottom navigation colors
   document.getElementById('nav-wealth').classList.remove('text-emerald-700');
   document.getElementById('nav-planner').classList.remove('text-emerald-700');
   document.getElementById('nav-transactions').classList.remove('text-emerald-700');
   document.getElementById(`nav-${tab}`).classList.add('text-emerald-700');
+  
+  // 4. Update Header Title
   document.getElementById('header-title').innerText = tab === 'wealth' ? 'Net Worth & Balances' : tab === 'planner' ? 'Budget Planner' : 'Transactions';
 
+  // 5. Render the data
   if(tab === 'wealth') renderWealth();
   if(tab === 'planner') renderPlanner();
   if(tab === 'transactions') renderTransactions();
